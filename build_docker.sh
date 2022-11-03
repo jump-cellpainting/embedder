@@ -1,3 +1,7 @@
+# Copyright 2022 Verily Life Sciences LLC
+# Use of this source code is governed by a BSD-style license that can be found in the LICENSE file or at
+# https://developers.google.com/open-source/licenses/bsd
+
 #!/bin/bash
 
 gcloud --project terra-solutions-jump-cp-dev builds submit \

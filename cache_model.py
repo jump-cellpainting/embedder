@@ -1,3 +1,7 @@
+# Copyright 2022 Verily Life Sciences LLC
+# Use of this source code is governed by a BSD-style license that can be found in the LICENSE file or at
+# https://developers.google.com/open-source/licenses/bsd
+
 # Download and uncompress the model. See also:
 # https://www.tensorflow.org/hub/tf2_saved_model#using_a_savedmodel_in_low-level_tensorflow
 # https://www.tensorflow.org/hub/caching

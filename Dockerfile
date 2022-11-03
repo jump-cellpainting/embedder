@@ -1,3 +1,7 @@
+# Copyright 2022 Verily Life Sciences LLC
+# Use of this source code is governed by a BSD-style license that can be found in the LICENSE file or at
+# https://developers.google.com/open-source/licenses/bsd
+
 # Install gcloud so that we can access AWS secrets from Secret Manager.
 FROM gcr.io/google.com/cloudsdktool/google-cloud-cli:slim as gcloud
 
