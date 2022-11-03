@@ -11,7 +11,10 @@ version 1.0
 
 import 'https://raw.githubusercontent.com/broadinstitute/cellprofiler-on-Terra/v0.1.0/utils/cellprofiler_distributed_utils.wdl' as cell_profiler_workflows
 
-# TODO(deflaux) and more documentation and parameters_meta after this gets a review from mando@
+# TODO(deflaux) add more documentation and parameters_meta after this gets a review from mando@
+# TODO(deflaux, mando) store the Python scripts in the Docker image instead of pulling them from GCS, after
+#   we are finished changing them so frequently. That will eliminate two parameters and make this workflow easier for others to run.
+# TODO(deflaux) add AWS federated auth for Google Accounts
 
 workflow EmbeddingCreation {
     input {
