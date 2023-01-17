@@ -9,7 +9,7 @@
 
 version 1.0
 
-import 'https://raw.githubusercontent.com/broadinstitute/cellprofiler-on-Terra/v0.1.0/utils/cellprofiler_distributed_utils.wdl' as cell_profiler_workflows
+import 'https://raw.githubusercontent.com/broadinstitute/cellprofiler-on-Terra/v0.2.0/utils/cellprofiler_distributed_utils.wdl' as cell_profiler_workflows
 
 # TODO(deflaux) add more documentation and parameters_meta after this gets a review from mando@
 # TODO(deflaux, mando) store the Python scripts in the Docker image instead of pulling them from GCS, after
@@ -120,7 +120,9 @@ workflow EmbeddingCreation {
     }
 
     output {
+        String outputDirectory = delocalizeEmbeddingOutputs.output_directory[0]
         Array[File] tarOutputs = runEmbeddingCreationScript.tarOutputs
+        Array[File] dataWarningsLog = runEmbeddingCreationScript.dataWarningsLog
     }
 }
 
@@ -288,6 +290,7 @@ task runEmbeddingCreationScript {
     output {
         File tarOutputs = tarOutputsFile
         File executedScript = outputScriptFilename
+        File dataWarningsLog = glob('*data_warnings.log')[0]
     }
 
     # See also https://cromwell.readthedocs.io/en/stable/RuntimeAttributes/#recognized-runtime-attributes-and-backends
