@@ -120,8 +120,9 @@ workflow EmbeddingCreation {
     }
 
     output {
+        File shardingScriptUsed = determineShards.executedScript
+        File embeddingCreationScriptUsed = runEmbeddingCreationScript.executedScript[0]
         String outputDirectory = delocalizeEmbeddingOutputs.output_directory[0]
-        Array[File] tarOutputs = runEmbeddingCreationScript.tarOutputs
         Array[File] dataWarningsLog = runEmbeddingCreationScript.dataWarningsLog
     }
 }
