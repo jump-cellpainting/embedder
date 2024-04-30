@@ -67,37 +67,26 @@ from absl import flags
 
 
 # These imports will fail unless you restart the runtime after pip install.
+from typing import Dict, List, Tuple
+
 import collections
 import concurrent.futures
 import functools
+import json
 import os
-import re
+import shutil
 import sys
 
-import apache_beam as beam
-import apache_beam.dataframe.convert
-import apache_beam.dataframe.io
-from apache_beam.options import pipeline_options
-import json
-import pathlib
-from PIL import Image as PilImage
-import pandas as pd
+import fsspec
+from google.cloud import secretmanager
 import numpy as np
 import numpy.typing as npt
-import fsspec
-import tensorflow as tf
-import tensorflow_hub as hub
+from PIL import Image as PilImage
+import pandas as pd
 import pyarrow
 import pyarrow.parquet as pq
-from typing import Dict, Iterable, List, Tuple
-
-
-# In[8]:
-
-
-# Import for reading in actual data.
-import imagecodecs
-import tifffile as tiff
+import tensorflow as tf
+import tensorflow_hub as hub
 
 
 # ## Environment variables
@@ -251,10 +240,6 @@ CELL_CENTER_COL = _CELL_CENTER_X.value
 
 PROJECT_ID = YOURPROJECTNUMBER
 
-import shutil
-
-from google.cloud import secretmanager
-
 
 def access_secret_version(secret_id, version_id='latest'):
   # Create the Secret Manager client.
@@ -320,52 +305,67 @@ shard_metadata
 def extract_image_column_names(
     load_data_df: pd.DataFrame,
     channel_order: List[str]) -> Tuple[List[str], List[str]]:
-  """Find the column names for image and illum filenames and paths."""
-  image_file_names = []
-  image_file_paths = []
-  illum_file_names = []
-  illum_file_paths = []
-  for col_name in load_data_df.columns:
-    if col_name.startswith(CELL_PROFILER_IMAGE_FILE_NAME_PREFIX):
-      image_file_names.append(col_name)
-    elif col_name.startswith(CELL_PROFILER_IMAGE_FILE_PATH_PREFIX):
-      image_file_paths.append(col_name)
-    elif col_name.startswith(CELL_PROFILER_ILLUM_FILE_NAME_PREFIX):
-      illum_file_names.append(col_name)
-    elif col_name.startswith(CELL_PROFILER_ILLUM_FILE_PATH_PREFIX):
-      illum_file_paths.append(col_name)
-  # TODO(mando): Validate the columns.
-  image_output_dict = collections.defaultdict(dict)
-  for col_name in image_file_names:
-    key = col_name.split(CELL_PROFILER_FILE_SEP)[1]
-    image_output_dict[key]['image_filename'] = col_name
-  for col_name in image_file_paths:
-    key = col_name.split(CELL_PROFILER_FILE_SEP)[1]
-    image_output_dict[key]['image_filepath'] = col_name
-  illum_output_dict = collections.defaultdict(dict)
-  for col_name in illum_file_names:
-    key = col_name.split(CELL_PROFILER_FILE_SEP)[1]
-    illum_output_dict[key]['illum_filename'] = col_name
-  for col_name in illum_file_paths:
-    key = col_name.split(CELL_PROFILER_FILE_SEP)[1]
-    illum_output_dict[key]['illum_filepath'] = col_name
-  # Order output by the desired channel order.
-  image_channel_order = []
-  illum_channel_order = []
-  for channel in channel_order:
-    for col_name in image_output_dict.keys():
-      if col_name.lower().find(channel) > -1:
-        image_channel_order.append(col_name)
-    for col_name in illum_output_dict.keys():
-      if col_name.lower().find(channel) > -1:
-        illum_channel_order.append(col_name)
-  image_output = []
-  illum_output = []
-  for channel in image_channel_order:
-    image_output.append(image_output_dict[channel])
-  for channel in illum_channel_order:
-    illum_output.append(illum_output_dict[channel])
-  return image_output, illum_output
+    """Find the column names for image and illum filenames and paths.
+
+    Args:
+        load_data_df (pd.DataFrame): The DataFrame containing the data.
+        channel_order (List[str]): The desired order of the channels.
+
+    Returns:
+        Tuple[List[str], List[str]]: A tuple containing two lists. The first list
+        contains the column names for image filenames and paths, ordered according
+        to the desired channel order. The second list contains the column names for
+        illum filenames and paths, also ordered according to the desired channel order.
+    """
+    image_file_names = []
+    image_file_paths = []
+    illum_file_names = []
+    illum_file_paths = []
+    for col_name in load_data_df.columns:
+        if col_name.startswith(CELL_PROFILER_IMAGE_FILE_NAME_PREFIX):
+            image_file_names.append(col_name)
+        elif col_name.startswith(CELL_PROFILER_IMAGE_FILE_PATH_PREFIX):
+            image_file_paths.append(col_name)
+        elif col_name.startswith(CELL_PROFILER_ILLUM_FILE_NAME_PREFIX):
+            illum_file_names.append(col_name)
+        elif col_name.startswith(CELL_PROFILER_ILLUM_FILE_PATH_PREFIX):
+            illum_file_paths.append(col_name)
+        
+    image_output_dict = collections.defaultdict(dict)
+    for col_name in image_file_names:
+        key = col_name.split(CELL_PROFILER_FILE_SEP)[1]
+        image_output_dict[key]['image_filename'] = col_name
+    for col_name in image_file_paths:
+        key = col_name.split(CELL_PROFILER_FILE_SEP)[1]
+        image_output_dict[key]['image_filepath'] = col_name
+
+    illum_output_dict = collections.defaultdict(dict)
+    for col_name in illum_file_names:
+        key = col_name.split(CELL_PROFILER_FILE_SEP)[1]
+        illum_output_dict[key]['illum_filename'] = col_name
+    for col_name in illum_file_paths:
+        key = col_name.split(CELL_PROFILER_FILE_SEP)[1]
+        illum_output_dict[key]['illum_filepath'] = col_name
+
+    # Order output by the desired channel order.
+    image_channel_order = []
+    illum_channel_order = []
+    for channel in channel_order:
+        for col_name in image_output_dict.keys():
+            if col_name.lower().find(channel) > -1:
+                image_channel_order.append(col_name)
+        for col_name in illum_output_dict.keys():
+            if col_name.lower().find(channel) > -1:
+                illum_channel_order.append(col_name)
+
+    image_output = []
+    illum_output = []
+    for channel in image_channel_order:
+        image_output.append(image_output_dict[channel])
+    for channel in illum_channel_order:
+        illum_output.append(illum_output_dict[channel])
+
+    return image_output, illum_output
 
 
 def normalize_cell_center_df(
@@ -374,28 +374,52 @@ def normalize_cell_center_df(
     object_number_colname: str = 'ObjectNumber',
     cell_center_x_colname: str = 'Location_Center_X',
     cell_center_y_colname: str = 'Location_Center_Y') -> pd.DataFrame:
-  """Simplify and normalize cell center dataframe."""
-  columns = [
-      site_number_colname, object_number_colname, cell_center_x_colname, cell_center_y_colname
-  ]
-  cell_center_df = full_cell_center_df[columns].copy()
-  cell_center_df[cell_center_x_colname] = cell_center_df[
-      cell_center_x_colname].round(decimals=0).astype(int)
-  cell_center_df[cell_center_y_colname] = cell_center_df[
-      cell_center_y_colname].round(decimals=0).astype(int)
-  return cell_center_df
+    """
+    Simplify and normalize cell center dataframe.
+
+    Args:
+        full_cell_center_df (pd.DataFrame): The full cell center dataframe.
+        site_number_colname (str, optional): The column name for site number. Defaults to 'ImageNumber'.
+        object_number_colname (str, optional): The column name for object number. Defaults to 'ObjectNumber'.
+        cell_center_x_colname (str, optional): The column name for cell center x-coordinate. Defaults to 'Location_Center_X'.
+        cell_center_y_colname (str, optional): The column name for cell center y-coordinate. Defaults to 'Location_Center_Y'.
+
+    Returns:
+        pd.DataFrame: The simplified and normalized cell center dataframe.
+    """
+    columns = [
+        site_number_colname, object_number_colname, cell_center_x_colname, cell_center_y_colname
+    ]
+    cell_center_df = full_cell_center_df[columns].copy()
+    cell_center_df[cell_center_x_colname] = cell_center_df[
+        cell_center_x_colname].round(decimals=0).astype(int)
+    cell_center_df[cell_center_y_colname] = cell_center_df[
+        cell_center_y_colname].round(decimals=0).astype(int)
+    return cell_center_df
 
 
 # In[19]:
 
-
+    
 def load_metadata_files(load_data_with_illum_csv: str,
                         shard_wells: List[str],
                         channel_order: List[str],
                         cell_centers_path_prefix: str,
                         cell_centers_filename: str,
                         image_metadata_filename: str) -> Tuple[Dict, List[str]]:
-  """Load all metadata files necessary to create all cell-level metadata."""
+  """Load all metadata files necessary to create all cell-level metadata.
+
+    Args:
+        load_data_with_illum_csv (str): Path to the metadata file.
+        shard_wells (List[str]): List of wells to include in the analysis.
+        channel_order (List[str]): List of channel names in the desired order.
+        cell_centers_path_prefix (str): Prefix of the path where cell center files are located.
+        cell_centers_filename (str): Name of the cell center file.
+        image_metadata_filename (str): Name of the image metadata file.
+
+    Returns:
+        Tuple[Dict, List[str]]: A tuple containing the site-level metadata dictionary and a list of illumination file paths.
+    """
   if load_data_with_illum_csv.endswith('parquet'):
     with fsspec.open(load_data_with_illum_csv, mode='rb') as f:
         load_data_df = pd.read_parquet(f)
@@ -526,119 +550,196 @@ def load_metadata_files(load_data_with_illum_csv: str,
 
 
 def load_ordered_illum_img(ordered_illum_image_filepaths):
-  img_list = []
-  for channel_filepath in ordered_illum_image_filepaths:
-    print(channel_filepath)
-    with fsspec.open(channel_filepath, mode='rb') as f:
-      img = np.load(f)
-      # Add a channel dimension.
-      img = np.expand_dims(img, -1)
-      img_list.append(img)
-  return np.concatenate(img_list, axis=-1)
+    """
+    Load and concatenate a list of ordered illumination images.
+
+    Args:
+        ordered_illum_image_filepaths (list): A list of filepaths for the ordered illumination images.
+
+    Returns:
+        numpy.ndarray: A numpy array containing the concatenated illumination images.
+
+    """
+    img_list = []
+    for channel_filepath in ordered_illum_image_filepaths:
+        print(channel_filepath)
+        with fsspec.open(channel_filepath, mode='rb') as f:
+            img = np.load(f)
+            # Add a channel dimension.
+            img = np.expand_dims(img, -1)
+            img_list.append(img)
+    return np.concatenate(img_list, axis=-1)
 
 
 def _read_img(channel_filepath):
-  """Open an image and add a channel dimension."""
-  with fsspec.open(channel_filepath, mode='rb') as f:
-    img = np.asarray(PilImage.open(f))
-    # Add a channel dimension
-    img = np.expand_dims(img, -1)
-  # Returning the filepath so the images can be sorted.
-  return channel_filepath, img
+    """Open an image and add a channel dimension.
+
+    Args:
+        channel_filepath (str): The file path of the image channel.
+
+    Returns:
+        tuple: A tuple containing the file path and the image array with an added channel dimension.
+    """
+    with fsspec.open(channel_filepath, mode='rb') as f:
+        img = np.asarray(PilImage.open(f))
+        # Add a channel dimension
+        img = np.expand_dims(img, -1)
+    # Returning the filepath so the images can be sorted.
+    return channel_filepath, img
 
 
 def parallel_load_img(elem, illum_img=None):
-  """Load channel images for a site in parallel."""
-  img_paths = elem['image_filepaths']
-  with concurrent.futures.ThreadPoolExecutor(
-      max_workers=len(img_paths)) as executor:
-    img_list = list(executor.map(_read_img, img_paths))
-  # Ensure order matches the original channel order.
-  img_list = sorted(img_list, key=lambda x: img_paths.index(x[0]))
-  # Create a list of only images.
-  img_list = [v[1] for v in img_list]
-  img = np.concatenate(img_list, axis=-1).astype(np.float32)
-  if illum_img is not None:
-    img /= illum_img
-  elem['image'] = img
-  return elem
+    """Load channel images for a site in parallel.
+
+    Args:
+        elem (dict): The dictionary containing the site information.
+        illum_img (ndarray, optional): The illumination image. Defaults to None.
+
+    Returns:
+        dict: The updated dictionary with the loaded image.
+
+    """
+    img_paths = elem['image_filepaths']
+    with concurrent.futures.ThreadPoolExecutor(
+            max_workers=len(img_paths)) as executor:
+        img_list = list(executor.map(_read_img, img_paths))
+    # Ensure order matches the original channel order.
+    img_list = sorted(img_list, key=lambda x: img_paths.index(x[0]))
+    # Create a list of only images.
+    img_list = [v[1] for v in img_list]
+    img = np.concatenate(img_list, axis=-1).astype(np.float32)
+    if illum_img is not None:
+        img /= illum_img
+    elem['image'] = img
+    return elem
 
 
 def extract_patches(elem, cell_patch_dim, cell_center_row, cell_center_col):
-  """."""
-  shared_metadata = ['source', 'batch', 'plate', 'well', 'site']
-  half_patch_dim = cell_patch_dim // 2
-  row_dim, col_dim, _ = tf.shape(elem['image'])
-  paddings = ([half_patch_dim, half_patch_dim],
-              [half_patch_dim, half_patch_dim],
-              [0, 0])
-  padded_full_img = np.pad(elem['image'], pad_width=paddings, mode='reflect')
-  # Some sites may not have cell centers defined so we skip those.
-  if 'cell_center_df' in elem and elem['cell_center_df'].shape[0] > 0:
-      for _, data_row in elem['cell_center_df'].iterrows():
-        cell_elem = {k: elem[k] for k in shared_metadata}
-        cell_elem['cell_center_row'] = data_row[cell_center_row]
-        cell_elem['cell_center_col'] = data_row[cell_center_col]
-        cell_elem['region_outside_image'] = False
-        if cell_elem['cell_center_row'] < half_patch_dim or cell_elem[
-            'cell_center_col'] < half_patch_dim:
-          cell_elem['region_outside_image'] = True
-        if (row_dim - cell_elem['cell_center_row']) < half_patch_dim or (
-            col_dim - cell_elem['cell_center_col']) < half_patch_dim:
-          cell_elem['region_outside_image'] = True
-        cell_elem['nuclei_object_number'] = data_row['ObjectNumber']
-        # Add the offset for the padding to the center position.
-        cell_patch_row_slice = slice(
-            half_patch_dim + cell_elem['cell_center_row'] - half_patch_dim,
-            half_patch_dim + cell_elem['cell_center_row'] + half_patch_dim)
-        cell_patch_col_slice = slice(
-            half_patch_dim + cell_elem['cell_center_col'] - half_patch_dim,
-            half_patch_dim + cell_elem['cell_center_col'] + half_patch_dim)
-        cell_elem['image'] = padded_full_img[cell_patch_row_slice,
-                                             cell_patch_col_slice]
-        yield cell_elem
+    """Extracts patches from an image based on cell center coordinates.
+
+    Args:
+        elem (dict): Dictionary containing image and cell center information.
+        cell_patch_dim (int): Dimension of the cell patch.
+        cell_center_row (str): Key for accessing the cell center row information in `elem`.
+        cell_center_col (str): Key for accessing the cell center column information in `elem`.
+
+    Yields:
+        dict: Dictionary containing the extracted cell patch and relevant metadata.
+
+    """
+    shared_metadata = ['source', 'batch', 'plate', 'well', 'site']
+    half_patch_dim = cell_patch_dim // 2
+    row_dim, col_dim, _ = tf.shape(elem['image'])
+    paddings = ([half_patch_dim, half_patch_dim],
+                [half_patch_dim, half_patch_dim],
+                [0, 0])
+    padded_full_img = np.pad(elem['image'], pad_width=paddings, mode='reflect')
+    # Some sites may not have cell centers defined so we skip those.
+    if 'cell_center_df' in elem and elem['cell_center_df'].shape[0] > 0:
+        for _, data_row in elem['cell_center_df'].iterrows():
+            cell_elem = {k: elem[k] for k in shared_metadata}
+            cell_elem['cell_center_row'] = data_row[cell_center_row]
+            cell_elem['cell_center_col'] = data_row[cell_center_col]
+            cell_elem['region_outside_image'] = False
+            if cell_elem['cell_center_row'] < half_patch_dim or cell_elem[
+                'cell_center_col'] < half_patch_dim:
+                cell_elem['region_outside_image'] = True
+            if (row_dim - cell_elem['cell_center_row']) < half_patch_dim or (
+                col_dim - cell_elem['cell_center_col']) < half_patch_dim:
+                cell_elem['region_outside_image'] = True
+            cell_elem['nuclei_object_number'] = data_row['ObjectNumber']
+            # Add the offset for the padding to the center position.
+            cell_patch_row_slice = slice(
+                half_patch_dim + cell_elem['cell_center_row'] - half_patch_dim,
+                half_patch_dim + cell_elem['cell_center_row'] + half_patch_dim)
+            cell_patch_col_slice = slice(
+                half_patch_dim + cell_elem['cell_center_col'] - half_patch_dim,
+                half_patch_dim + cell_elem['cell_center_col'] + half_patch_dim)
+            cell_elem['image'] = padded_full_img[cell_patch_row_slice,
+                                                 cell_patch_col_slice]
+            yield cell_elem
 
 
 def norm_img(elem):
-  # NOTE: This normalizes at the site-image level and not per-patch.
-  # One is not necessarily correct, but they do not yield the same results.
-  image = elem['image']
-  max_val = np.amax(image, axis=(0, 1), keepdims=True)
-  min_val = np.amin(image, axis=(0, 1), keepdims=True)
-  elem['image'] = (image - min_val) / (max_val - min_val)
-  return elem
+    """Normalize the image in the given dictionary.
+
+    Note:
+        This function normalizes the image at the site-image level and not per-patch.
+
+    Args:
+        elem (dict): A dictionary containing the image to be normalized.
+
+    Returns:
+        dict: The dictionary with the normalized image.
+    """
+    image = elem['image']
+    max_val = np.amax(image, axis=(0, 1), keepdims=True)
+    min_val = np.amin(image, axis=(0, 1), keepdims=True)
+    elem['image'] = (image - min_val) / (max_val - min_val)
+    return elem
 
 
 def make_per_channel_images(img):
-  imgs = np.transpose(img, (2, 0, 1))
-  imgs = np.expand_dims(imgs, axis=-1)
-  imgs = np.repeat(imgs, 3, axis=-1)
-  imgs = np.vsplit(imgs, 5)
-  imgs = [np.squeeze(img) for img in imgs]
-  return imgs
+    """Splits an image into per-channel images.
+
+    Args:
+        img (numpy.ndarray): The input image.
+
+    Returns:
+        list: A list of per-channel images.
+
+    Raises:
+        None
+
+    """
+    imgs = np.transpose(img, (2, 0, 1))
+    imgs = np.expand_dims(imgs, axis=-1)
+    imgs = np.repeat(imgs, 3, axis=-1)
+    imgs = np.vsplit(imgs, 5)
+    imgs = [np.squeeze(img) for img in imgs]
+    return imgs
 
 
 
 def add_embs(patch_dict_list, embs_list, channel_order):
-  output = []
-  for i, patch_dict in enumerate(patch_dict_list):
-    for j, chan_name in enumerate(channel_order):
-      emb_index = i * len(channel_order) + j
-      patch_dict[f'{chan_name}_emb'] = embs_list[emb_index]
-    output.append(patch_dict)
-  return output
+    """Add embeddings to the patch dictionary list.
+
+    Args:
+        patch_dict_list (list): List of patch dictionaries.
+        embs_list (list): List of embeddings.
+        channel_order (list): List of channel names.
+
+    Returns:
+        list: List of patch dictionaries with embeddings added.
+    """
+    output = []
+    for i, patch_dict in enumerate(patch_dict_list):
+        for j, chan_name in enumerate(channel_order):
+            emb_index = i * len(channel_order) + j
+            patch_dict[f'{chan_name}_emb'] = embs_list[emb_index]
+        output.append(patch_dict)
+    return output
 
 
 def make_output_table(patches, schema):
-  output = collections.defaultdict(list)
-  for patch_dict in patches:
-    for name in schema.names:
-      output[name].append(patch_dict[name])
+    """Create an pyarrow table from a list of patches and a schema.
 
-  for name, parquet_type in zip(schema.names, schema.types):
-    output[name] = pyarrow.array(output[name], type=parquet_type)
+    Args:
+        patches (list): A list of dictionaries representing patches.
+        schema (pyarrow.Schema): The schema for the output table.
 
-  return pyarrow.table(output, schema=schema)
+    Returns:
+        pyarrow.Table: The output table containing the patched data.
+    """
+    output = collections.defaultdict(list)
+    for patch_dict in patches:
+        for name in schema.names:
+            output[name].append(patch_dict[name])
+
+    for name, parquet_type in zip(schema.names, schema.types):
+        output[name] = pyarrow.array(output[name], type=parquet_type)
+
+    return pyarrow.table(output, schema=schema)
 
 
 def run_pipeline(site_metadata_dict,
@@ -652,100 +753,117 @@ def run_pipeline(site_metadata_dict,
                  model_batch_dim: str,
                  output_root_dir: str,
                  output_filename: str):
-  """Extract patch images, computed embeddings, and save results."""
-  metadata_field_schema = [
-      ('source', pyarrow.string()),
-      ('batch', pyarrow.string()),
-      ('plate', pyarrow.string()),
-      ('well', pyarrow.string()),
-      ('site', pyarrow.string()),
-      ('cell_center_row', pyarrow.uint16()),
-      ('cell_center_col', pyarrow.uint16()),
-      ('region_outside_image', pyarrow.bool_()),
-      ('nuclei_object_number', pyarrow.uint16()),
-  ]
-  emb_fields = [f'{chan}_emb' for chan in channel_order]
-  emb_pyarrow_type = pyarrow.list_(
-      pyarrow.float32(), list_size=model_output_emb_size)
-  schema = pyarrow.schema(metadata_field_schema +
-                          [(x, emb_pyarrow_type) for x in emb_fields])
+    """Load images, extract patch images, compute embeddings, and save results.
 
-  patches = []
-  load_errors = []
-  for site_key, site_image_metadata in sorted(site_metadata_dict.items()):
-    print(f'Processing site: {site_key}')
-    try:
-      imgs = parallel_load_img(site_image_metadata, illum_img=illumination_img)
-    except Exception as err:
-      load_errors.append((site_key, site_image_metadata, err))
-      print(f'\tSkipping due to load error: {err}')
-      continue
-    imgs = norm_img(imgs)
-    patches.extend(
+    Args:
+        site_metadata_dict (dict): A dictionary containing metadata for each site.
+        illumination_img (numpy.ndarray): The illumination image.
+        emb_model (tf.keras.Model): The embedding model.
+        channel_order (list): The order of the channels.
+        model_output_emb_size (int): The size of the model output embeddings.
+        cell_patch_dim (int): The dimension of the cell patches.
+        cell_center_row_colname (str): The column name for the cell center row.
+        cell_center_col_colname (str): The column name for the cell center column.
+        model_batch_dim (str): The batch dimension for the model.
+        output_root_dir (str): The root directory for the output.
+        output_filename (str): The filename for the output.
+
+    Returns:
+        None
+    """
+    metadata_field_schema = [
+        ('source', pyarrow.string()),
+        ('batch', pyarrow.string()),
+        ('plate', pyarrow.string()),
+        ('well', pyarrow.string()),
+        ('site', pyarrow.string()),
+        ('cell_center_row', pyarrow.uint16()),
+        ('cell_center_col', pyarrow.uint16()),
+        ('region_outside_image', pyarrow.bool_()),
+        ('nuclei_object_number', pyarrow.uint16()),
+    ]
+    emb_fields = [f'{chan}_emb' for chan in channel_order]
+    emb_pyarrow_type = pyarrow.list_(
+        pyarrow.float32(), list_size=model_output_emb_size)
+    schema = pyarrow.schema(metadata_field_schema +
+                            [(x, emb_pyarrow_type) for x in emb_fields])
+
+    patches = []
+    load_errors = []
+    for site_key, site_image_metadata in sorted(site_metadata_dict.items()):
+        print(f'Processing site: {site_key}')
+        try:
+            imgs = parallel_load_img(site_image_metadata, illum_img=illumination_img)
+        except Exception as err:
+            load_errors.append((site_key, site_image_metadata, err))
+            print(f'\tSkipping due to load error: {err}')
+            continue
+        imgs = norm_img(imgs)
+        patches.extend(
             list(
                 extract_patches(imgs, cell_patch_dim, cell_center_row_colname,
                                 cell_center_col_colname)))
-    print(f'Number of input patches: {len(patches)}')
+        print(f'Number of input patches: {len(patches)}')
 
-  # Save out the image loading errors.
-  print(f'Found {len(load_errors)} loading errors')
-  output_error_filepath = os.path.join('..', 'image_loading_data_warnings.log')
-  with open(output_error_filepath, 'w', encoding="utf-8") as f:
-    f.writelines(['site_key: tuple\n', 'site_image_metadata: dict\n', 'error: str\n\n'])
-    if len(load_errors):
-      for site_key, site_image_metadata, err in load_errors:
-        f.writelines([str(site_key) + '\n',
-                      str(site_image_metadata) + '\n', 
-                      str(err) + '\n\n'])
+    # Save out the image loading errors.
+    print(f'Found {len(load_errors)} loading errors')
+    output_error_filepath = os.path.join('..', 'image_loading_data_warnings.log')
+    with open(output_error_filepath, 'w', encoding="utf-8") as f:
+        f.writelines(['site_key: tuple\n', 'site_image_metadata: dict\n', 'error: str\n\n'])
+        if len(load_errors):
+            for site_key, site_image_metadata, err in load_errors:
+                f.writelines([str(site_key) + '\n',
+                              str(site_image_metadata) + '\n',
+                              str(err) + '\n\n'])
 
-  # Make a generator function for all of the channel images.
-  def _make_cell_data():
-    for elem in patches:
-      for channel_img in make_per_channel_images(elem['image']):
-        yield channel_img
+    # Make a generator function for all of the channel images.
+    def _make_cell_data():
+        for elem in patches:
+            for channel_img in make_per_channel_images(elem['image']):
+                yield channel_img
 
-  # Select 512 so don't preload too many batches onto the GPU.
-  num_prefetch = max(1, 512 // model_batch_dim)
-  print(f'Prefetching {num_prefetch} for a batch dimension of {model_batch_dim}')
-  print(f'Total {len(channel_order) * round((len(patches) / model_batch_dim) + 0.5)} steps')
-  all_imgs_batch_ds = tf.data.Dataset.from_generator(
-      _make_cell_data,
-      output_types=tf.float32,
-      output_shapes=(cell_patch_dim, cell_patch_dim, 3),
-  ).batch(
-      model_batch_dim, num_parallel_calls=4, deterministic=True).prefetch(num_prefetch)
-  # Predict per-batch since just predict had an OOM issues. See issue elow as possibly related:
-  # https://github.com/keras-team/keras/issues/13118
-  patch_embs = []
-  i = 0
-  for b in all_imgs_batch_ds:
-    if i % 25 == 0:
-      print(i)
-    i += 1
-    patch_embs.append(emb_model.predict_on_batch(b))
-  patch_embs = np.concatenate(patch_embs, axis=0)
-  print('patch_embs', patch_embs.shape)
-  patches_new = add_embs(patches, patch_embs, channel_order)
-  print(f'Number of output patches with embs: {len(patches_new)}')
-  raw_output = collections.defaultdict(list)
-  for cell_dict in patches_new:
-    site_dir = '-'.join([cell_dict['well'],
-                         cell_dict['site']])
-    raw_output[site_dir].append(cell_dict)
-  for metadata_output_dir, cell_dict_list in raw_output.items():
-    print(f'Writing {metadata_output_dir}')
-    # Sort the cells for each site.
-    cell_dict_list = sorted(cell_dict_list,
-                            key=lambda x: x['nuclei_object_number'])
-    patches_table = make_output_table(cell_dict_list, schema)
-    # Create the output directory as well-site/output. This will be copied to
-    # /source/embeddings/model_name/batch/plate/well-site/output
-    output_dir = os.path.join(output_root_dir, metadata_output_dir)
-    if not os.path.isdir(output_dir):
-      os.makedirs(output_dir)
-    full_output_parquet_filepath = os.path.join(output_dir, output_filename)
-    with fsspec.open(full_output_parquet_filepath, mode='wb') as f:
-      pq.write_table(patches_table, f)
+    # Select 512 so don't preload too many batches onto the GPU.
+    num_prefetch = max(1, 512 // model_batch_dim)
+    print(f'Prefetching {num_prefetch} for a batch dimension of {model_batch_dim}')
+    print(f'Total {len(channel_order) * round((len(patches) / model_batch_dim) + 0.5)} steps')
+    all_imgs_batch_ds = tf.data.Dataset.from_generator(
+        _make_cell_data,
+        output_types=tf.float32,
+        output_shapes=(cell_patch_dim, cell_patch_dim, 3),
+    ).batch(
+        model_batch_dim, num_parallel_calls=4, deterministic=True).prefetch(num_prefetch)
+    # Predict per-batch since just predict had an OOM issues. See issue elow as possibly related:
+    # https://github.com/keras-team/keras/issues/13118
+    patch_embs = []
+    i = 0
+    for b in all_imgs_batch_ds:
+        if i % 25 == 0:
+            print(i)
+        i += 1
+        patch_embs.append(emb_model.predict_on_batch(b))
+    patch_embs = np.concatenate(patch_embs, axis=0)
+    print('patch_embs', patch_embs.shape)
+    patches_new = add_embs(patches, patch_embs, channel_order)
+    print(f'Number of output patches with embs: {len(patches_new)}')
+    raw_output = collections.defaultdict(list)
+    for cell_dict in patches_new:
+        site_dir = '-'.join([cell_dict['well'],
+                             cell_dict['site']])
+        raw_output[site_dir].append(cell_dict)
+    for metadata_output_dir, cell_dict_list in raw_output.items():
+        print(f'Writing {metadata_output_dir}')
+        # Sort the cells for each site.
+        cell_dict_list = sorted(cell_dict_list,
+                                key=lambda x: x['nuclei_object_number'])
+        patches_table = make_output_table(cell_dict_list, schema)
+        # Create the output directory as well-site/output. This will be copied to
+        # /source/embeddings/model_name/batch/plate/well-site/output
+        output_dir = os.path.join(output_root_dir, metadata_output_dir)
+        if not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+        full_output_parquet_filepath = os.path.join(output_dir, output_filename)
+        with fsspec.open(full_output_parquet_filepath, mode='wb') as f:
+            pq.write_table(patches_table, f)
 
 
 # # Load metadata
@@ -778,18 +896,6 @@ illumination_img = load_ordered_illum_img(illum_filepaths)
 
 
 illumination_img.shape
-
-
-# In[25]:
-
-
-import matplotlib.pyplot as plt
-
-
-# In[42]:
-
-
-plt.imshow(illumination_img[-200:, -200:, 3])
 
 
 # In[36]:
@@ -887,7 +993,6 @@ def load_all_results(site_metadata_dict):
   for site_key, site_dict in site_metadata_dict.items():
     plate, well, site = site_key 
     site = f'{site:02d}'
-    orig_num = site_dict['cell_center_df'].shape[0]
     filepath = f'{well}-{site}/embedding.parquet'
     processed_df = pd.read_parquet(filepath)
     output[site_key] = processed_df
@@ -949,7 +1054,6 @@ def validate_random_cell_embeddings(site_metadata_dict,
   """."""
   for site_key, site_dict in site_metadata_dict.items():
     print(site_key)
-    batch = site_dict['batch']
     plate, well, site = site_key
     site = f'{site:02d}'
     filepath = f'{well}-{site}/embedding.parquet'
@@ -994,56 +1098,3 @@ if COMPUTE_VALIDATION:
                                     emb_model=emb_model, 
                                     channel_order=CHANNEL_ORDER)
 
-
-# # (Optional) Visualization
-
-# In[37]:
-
-
-COMPUTE_VISUALIZATION = False
-
-
-# In[38]:
-
-
-def show_images(img_list, img_name_list=()):
-    num_imgs = len(img_list)
-    if not img_name_list:
-        img_name_list = [str(i) for i in range(num_imgs)]
-    children = [widgets.Output() for _ in range(num_imgs)]
-    tab = widgets.Tab(children=children)
-    for i, img in enumerate(img_list):
-        with children[i]:
-            plt.show(plt.imshow(img))
-        tab.set_title(i, img_name_list[i])
-    display(tab)
-
-
-# In[39]:
-
-
-if COMPUTE_VISUALIZATION:
-  import ipywidgets as widgets
-  import matplotlib.pyplot as plt
-
-  loaded_test_site_image_metadata = parallel_load_img([v for v in site_metadata_dict.values()][0])
-  img_list = [np.log1p(loaded_test_site_image_metadata['image'][:, :, i]) for i in range(len(CHANNEL_ORDER))]
-  cell_elem_list = [v for v in extract_patches(loaded_test_site_image_metadata,
-                                               _CELL_PATCH_DIM.value,
-                                               CELL_CENTER_ROW,
-                                               CELL_CENTER_COL)]
-  cell_img_list = [e['image'] for e in cell_elem_list]
-
-
-# In[40]:
-
-
-if COMPUTE_VISUALIZATION:
-  show_images(img_list, CHANNEL_ORDER)
-
-
-# In[41]:
-
-
-if COMPUTE_VISUALIZATION:
-  show_images([img[:, :, 1] for img in cell_img_list[:20]])
