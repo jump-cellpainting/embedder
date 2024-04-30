@@ -35,9 +35,6 @@ workflow EmbeddingCreation {
         String cellCentersPathPrefix
         # Desired location of the computed embeddings.
         String embeddingOutputPath
-        String sourceId
-        String batchId
-        String plateId
         Int cellPatchDim
         Int modelBatchDim
         String tfHubModelPath
@@ -91,9 +88,6 @@ workflow EmbeddingCreation {
                 cellCentersPathPrefix = cellCentersPathPrefix,
                 secret_manager_resource_id_aws_access_key_id = secret_manager_resource_id_aws_access_key_id,
                 secret_manager_resource_id_aws_secret_access_key = secret_manager_resource_id_aws_secret_access_key,
-                sourceId = sourceId,
-                batchId = batchId,
-                plateId = plateId,
                 cellPatchDim = cellPatchDim,
                 modelBatchDim = modelBatchDim,
                 tfHubModelPath = tfHubModelPath,
@@ -216,9 +210,6 @@ task runEmbeddingCreationScript {
         # 3) Pass the secret's "Resource ID" as the value to these workflow parameters.
         String? secret_manager_resource_id_aws_access_key_id
         String? secret_manager_resource_id_aws_secret_access_key
-        String sourceId
-        String batchId
-        String plateId
         Int cellPatchDim
         Int modelBatchDim
         String tfHubModelPath
@@ -269,9 +260,6 @@ task runEmbeddingCreationScript {
         python3 ~{embeddingCreationScript} \
             --shard_metadata='~{shardMetadata}' \
             --cell_center_path_prefix=~{cellCentersPathPrefix} \
-            --source_id=~{sourceId} \
-            --batch_id=~{batchId} \
-            --plate_id=~{plateId} \
             --load_data=~{loadDataWithIllum} \
             --cell_patch_dim=~{cellPatchDim} \
             --model_batch_dim=~{modelBatchDim} \
