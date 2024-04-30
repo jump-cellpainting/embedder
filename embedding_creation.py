@@ -449,11 +449,14 @@ def load_metadata_files(load_data_with_illum_csv: str,
     image_csv_filepath = os.path.join(analysis_dir, image_metadata_filename)
     print(analysis_dir)
     print(image_csv_filepath)
-    with s3_fs.open(image_csv_filepath, mode='rb') as f:
-      image_df = pd.read_csv(f)
-    image_df = image_df[['Metadata_Plate', 'Metadata_Well', 'Metadata_Site', 'ImageNumber']]
-    image_df['NucleiPath'] = os.path.join(analysis_dir, cell_centers_filename)
-    image_dfs.append(image_df)
+    try:
+      with s3_fs.open(image_csv_filepath, mode='rb') as f:
+        image_df = pd.read_csv(f)
+      image_df = image_df[['Metadata_Plate', 'Metadata_Well', 'Metadata_Site', 'ImageNumber']]
+      image_df['NucleiPath'] = os.path.join(analysis_dir, cell_centers_filename)
+      image_dfs.append(image_df)
+    except Exception as err:
+      print('Error loading image csv', err)
   all_image_df = pd.concat(image_dfs)
 
   # Create the illumination images.
@@ -668,15 +671,32 @@ def run_pipeline(site_metadata_dict,
                           [(x, emb_pyarrow_type) for x in emb_fields])
 
   patches = []
+  load_errors = []
   for site_key, site_image_metadata in sorted(site_metadata_dict.items()):
     print(f'Processing site: {site_key}')
-    imgs = parallel_load_img(site_image_metadata, illum_img=illumination_img)
+    try:
+      imgs = parallel_load_img(site_image_metadata, illum_img=illumination_img)
+    except Exception as err:
+      load_errors.append((site_key, site_image_metadata, err))
+      print(f'\tSkipping due to load error: {err}')
+      continue
     imgs = norm_img(imgs)
     patches.extend(
             list(
                 extract_patches(imgs, cell_patch_dim, cell_center_row_colname,
                                 cell_center_col_colname)))
     print(f'Number of input patches: {len(patches)}')
+
+  # Save out the image loading errors.
+  print(f'Found {len(load_errors)} loading errors')
+  output_error_filepath = os.path.join('..', 'image_loading_data_warnings.log')
+  with open(output_error_filepath, 'w', encoding="utf-8") as f:
+    f.writelines(['site_key: tuple\n', 'site_image_metadata: dict\n', 'error: str\n\n'])
+    if len(load_errors):
+      for site_key, site_image_metadata, err in load_errors:
+        f.writelines([str(site_key) + '\n',
+                      str(site_image_metadata) + '\n', 
+                      str(err) + '\n\n'])
 
   # Make a generator function for all of the channel images.
   def _make_cell_data():
