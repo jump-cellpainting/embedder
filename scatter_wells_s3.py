@@ -32,17 +32,18 @@ flags.DEFINE_string('output_filename', 'shards.json', 'The name of the output fi
 
 
 def create_shard_metadata(load_data_with_illum_csv: str, modulus: int):
+  s3_fs = fsspec.filesystem('s3', anon=True)
   if load_data_with_illum_csv.endswith('parquet'):
-    with fsspec.open(load_data_with_illum_csv, mode='rb', s3={'anon': True}) as f:
+    with s3_fs.open(load_data_with_illum_csv, mode='rb') as f:
         load_data = pd.read_parquet(f)
   elif load_data_with_illum_csv.endswith('gz'):
     compression_dict = {'method': 'gzip'}
-    with fsspec.open(os.path.join(load_data_with_illum_csv), mode='rb', s3={'anon': True}) as f:
+    with s3_fs.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
       load_data = pd.read_csv(f, compression=compression_dict)
   else:
     # Assume default is uncompressed csv.
     compression_dict = {'method': None}
-    with fsspec.open(os.path.join(load_data_with_illum_csv), mode='rb', s3={'anon': True}) as f:
+    with s3_fs.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
       load_data = pd.read_csv(f, compression=compression_dict)
   print(f'Loaded {load_data.shape} from {load_data_with_illum_csv} with {load_data.columns}.')
 

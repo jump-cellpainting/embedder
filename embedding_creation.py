@@ -1,72 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Set up
-# 
-# **NOTE 1:** Papermill and/or Cromwell got stuck running the notebook forever with the kernel restart cell so it has been removed and the pip installs have been commented out.
-# 
-# **NOTE 2:** Only one cell should be tagged with 'parameters' for papermill.
-# 
-# **NOTE 3:** To download this file as a script that will run successfully, ensure that any cell magics (!, %, or %%) are commented out. Also ensure that `COMPUTE_VALIDATION = False` and `COMPUTE_VISUALIZATION = False`. Its a very good idea to check that the script runs successfully via the hardcoded parameter values before running it at scale. You can test it like so:
-# ```
-# echo after docker starts, run command: python3 /testing/embedding_creation.py
-# 
-# docker run -i -t --volume $HOME:/testing --entrypoint='' gcr.io/terra-solutions-jump-cp-dev/embedding_creation:20220808_223612 /bin/bash
-# ```
-
-# ## Python dependencies
-# 
-# For the workflow version of this, these are preinstalled in the Docker image.
-
-# In[1]:
-
-
-#%pip install --quiet apache-beam[gcp,dataframe]
-
-
-# In[2]:
-
-
-#%pip install --quiet fsspec[gcs,s3]
-
-
-# In[3]:
-
-
-# For reading in tiff images
-#%pip install --quiet imagecodecs
-
-
-# In[4]:
-
-
-# For using API to access secrets
-#%pip install --quiet google-cloud-secret-manager
-
-
-# In[5]:
-
-
-# Kernel restart if running as notebok.
-# Need to wait a couple seconds and then run code below.
-#import IPython
-#app = IPython.Application.instance()
-#app.kernel.do_shutdown(True)
-
-# Future optimization: create a custom Terra Jupyter image with everything
-# installed so that the above steps are unnecesary.
-
-
-# In[6]:
-
-
 from absl import flags
-
-
-# In[7]:
-
-
-# These imports will fail unless you restart the runtime after pip install.
 from typing import Dict, List, Tuple
 
 import collections
@@ -78,7 +13,6 @@ import shutil
 import sys
 
 import fsspec
-from google.cloud import secretmanager
 import numpy as np
 import numpy.typing as npt
 from PIL import Image as PilImage
@@ -88,20 +22,6 @@ import pyarrow.parquet as pq
 import tensorflow as tf
 import tensorflow_hub as hub
 
-
-# ## Environment variables
-# 
-# For the workflow version of this, these are configured in the WDL.
-
-# # Set parameters
-
-# In[9]:
-
-
-# Constants not set by Papermill
-
-# Expect form of rXXcXXfXXp01-chXXsk1fk1fl1.tiff
-# BROAD_FILENAME = re.compile(r'r(\d+)c(\d+)f(\d+)p01-ch(\d+)sk1fk1fl1.tiff')
 
 # Selecting expected channel order as alphabetical for now.
 # We use this mainly for creating the multi-channel site image.
@@ -135,10 +55,8 @@ CELL_PROFILER_ILLUM_FILE_PATH_PREFIX = 'PathName_Illum'
 CELL_PROFILER_FILE_SEP = '_'
 
 
-# In[10]:
-
-
-# Papermill parameters. See https://papermill.readthedocs.io/en/latest/usage-parameterize.html
+# Papermill parameters to be used when testing the code in this script via a Jupyer Notebook.
+# See https://papermill.readthedocs.io/en/latest/usage-parameterize.html
 # To see/set tags, 'Activate the tagging toolbar by navigating to View, Cell Toolbar, and then Tags'
 
 #---[ Inputs ]---
@@ -172,9 +90,6 @@ __OUTPUT_ROOT_DIRECTORY = './'
 __OUTPUT_FILENAME = 'embedding.parquet'
 
 
-# In[11]:
-
-
 _LOAD_DATA = flags.DEFINE_string('load_data', __LOAD_DATA, '')
 _SHARD_METADATA = flags.DEFINE_string('shard_metadata', __SHARD_METADATA, '')
 _CELL_CENTERS_PATH_PREFIX = flags.DEFINE_string('cell_center_path_prefix', __CELL_CENTERS_PATH_PREFIX, '')
@@ -198,9 +113,6 @@ _MODEL_BATCH_DIM = flags.DEFINE_integer('model_batch_dim', __MODEL_BATCH_DIM, ''
 
 _OUTPUT_ROOT_DIRECTORY = flags.DEFINE_string('output_root_directory', __OUTPUT_ROOT_DIRECTORY, '')
 _OUTPUT_FILENAME = flags.DEFINE_string('output_filename', __OUTPUT_FILENAME, '')
-
-
-# In[12]:
 
 
 # Parse flags
@@ -228,48 +140,8 @@ else:
     flags.FLAGS(sys.argv)
 
 
-# In[13]:
-
-
 CELL_CENTER_ROW = _CELL_CENTER_Y.value
 CELL_CENTER_COL = _CELL_CENTER_X.value
-
-
-# In[14]:
-
-
-PROJECT_ID = YOURPROJECTNUMBER
-
-
-def access_secret_version(secret_id, version_id='latest'):
-  # Create the Secret Manager client.
-  client = secretmanager.SecretManagerServiceClient()
-
-  # Build the resource name of the secret version.
-  name = f'projects/{PROJECT_ID}/secrets/{secret_id}/versions/{version_id}'
-
-  # Access the secret version.
-  response = client.access_secret_version(name=name)
-
-  # Return the decoded payload.
-  return response.payload.data.decode('UTF-8')
-
-
-config_string = access_secret_version('USERNAME-aws-config')
-credentials_string = access_secret_version('USERNAME-aws-credentials')
-
-aws_dir = os.path.join(os.path.expanduser('~'), '.aws')
-if os.path.exists(aws_dir):
-  shutil.rmtree(aws_dir)
-os.mkdir(aws_dir)
-
-with open(os.path.join(aws_dir, 'config'), 'w') as f:
-  f.write(config_string)
-with open(os.path.join(aws_dir, 'credentials'), 'w') as f:
-  f.write(credentials_string)
-
-
-# In[15]:
 
 
 gpus = tf.config.list_physical_devices('GPU')
@@ -285,21 +157,12 @@ if gpus:
     print(e)
 
 
-# In[16]:
-
-
 print(_SHARD_METADATA.value)
-
-
-# In[17]:
 
 
 # Parse shard metadata
 shard_metadata = json.loads(_SHARD_METADATA.value)
 shard_metadata
-
-
-# In[18]:
 
 
 def extract_image_column_names(
@@ -398,9 +261,6 @@ def normalize_cell_center_df(
     return cell_center_df
 
 
-# In[19]:
-
-    
 def load_metadata_files(load_data_with_illum_csv: str,
                         shard_wells: List[str],
                         channel_order: List[str],
@@ -420,24 +280,22 @@ def load_metadata_files(load_data_with_illum_csv: str,
     Returns:
         Tuple[Dict, List[str]]: A tuple containing the site-level metadata dictionary and a list of illumination file paths.
     """
+  s3_fs = fsspec.filesystem('s3', anon=True)
   if load_data_with_illum_csv.endswith('parquet'):
-    with fsspec.open(load_data_with_illum_csv, mode='rb') as f:
+    with s3_fs.open(load_data_with_illum_csv, mode='rb') as f:
         load_data_df = pd.read_parquet(f)
   elif load_data_with_illum_csv.endswith('gz'):
     compression_dict = {'method': 'gzip'}
-    with fsspec.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
+    with s3_fs.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
       load_data_df = pd.read_csv(f, compression=compression_dict)
   else:
     # Assume default is uncompressed csv.
     compression_dict = {'method': None}
-    with fsspec.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
+    with s3_fs.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
       load_data_df = pd.read_csv(f, compression=compression_dict)
 
   image_col_names, illum_col_names = extract_image_column_names(
       load_data_df, channel_order)
-
-  
-  s3_fs = fsspec.filesystem('s3')
 
   @functools.lru_cache(maxsize=9)
   def memoized_load_cell_centers(cell_centers_path):
@@ -546,9 +404,6 @@ def load_metadata_files(load_data_with_illum_csv: str,
   return site_metadata_dict, illum_filepaths
 
 
-# In[20]:
-
-
 def load_ordered_illum_img(ordered_illum_image_filepaths):
     """
     Load and concatenate a list of ordered illumination images.
@@ -561,9 +416,10 @@ def load_ordered_illum_img(ordered_illum_image_filepaths):
 
     """
     img_list = []
+    s3_fs = fsspec.filesystem('s3', anon=True)
     for channel_filepath in ordered_illum_image_filepaths:
         print(channel_filepath)
-        with fsspec.open(channel_filepath, mode='rb') as f:
+        with s3_fs.open(channel_filepath, mode='rb') as f:
             img = np.load(f)
             # Add a channel dimension.
             img = np.expand_dims(img, -1)
@@ -580,7 +436,8 @@ def _read_img(channel_filepath):
     Returns:
         tuple: A tuple containing the file path and the image array with an added channel dimension.
     """
-    with fsspec.open(channel_filepath, mode='rb') as f:
+    s3_fs = fsspec.filesystem('s3', anon=True)
+    with s3_fs.open(channel_filepath, mode='rb') as f:
         img = np.asarray(PilImage.open(f))
         # Add a channel dimension
         img = np.expand_dims(img, -1)
@@ -866,11 +723,7 @@ def run_pipeline(site_metadata_dict,
             pq.write_table(patches_table, f)
 
 
-# # Load metadata
-
-# In[21]:
-
-
+# Load metadata
 site_metadata_dict, illum_filepaths = load_metadata_files(
     _LOAD_DATA.value,
     shard_metadata['wells'],
@@ -880,45 +733,24 @@ site_metadata_dict, illum_filepaths = load_metadata_files(
     _IMAGE_METADATA_FILENAME.value)
 
 
-# In[22]:
-
-
 illum_filepaths
-
-
-# In[23]:
 
 
 illumination_img = load_ordered_illum_img(illum_filepaths)
 
 
-# In[24]:
-
-
 illumination_img.shape
-
-
-# In[36]:
 
 
 np.amin(illumination_img[:, :, 1], axis=0)
 
 
-# In[24]:
-
-
 emb_model = hub.KerasLayer(_TF_HUB_MODEL_PATH.value, trainable=False)
 
 
-# When this notebook is run as a script, the print statement below will help us confirm its using the model cached at `/opt/hub_models/0260bc9660269daa54e7ae1ec6f4ba0b471f89bc` via Docker image `gcr.io/terra-solutions-jump-cp-dev/embedding_creation:20220808_223612`.
-
-# In[25]:
-
-
+# When this notebook is run as a script, the print statement below will help us confirm its using the model cached at 
+# `/opt/hub_models/0260bc9660269daa54e7ae1ec6f4ba0b471f89bc` via Docker image `gcr.io/terra-solutions-jump-cp-dev/embedding_creation:20220808_223612`.
 print(hub.resolve(_TF_HUB_MODEL_PATH.value))
-
-
-# In[26]:
 
 
 resizing_emb_model = tf.keras.Sequential([
@@ -929,11 +761,7 @@ resizing_emb_model = tf.keras.Sequential([
 resizing_emb_model.build([None, _CELL_PATCH_DIM.value, _CELL_PATCH_DIM.value, 3])
 
 
-# # Run pipeline
-
-# In[27]:
-
-
+# Run pipeline
 run_pipeline(site_metadata_dict,
              illumination_img,
              resizing_emb_model,
@@ -948,44 +776,32 @@ run_pipeline(site_metadata_dict,
 )
 
 
-# In[28]:
-
-
 os.listdir()
 
 
-# # (Optional) Validate output
-
-# In[29]:
-
-
+# (Optional) Validate output
 COMPUTE_VALIDATION = False
 
 
-# In[30]:
-
-
 def load_data_with_illum_csv(load_data_with_illum_csv):
+  s3_fs = fsspec.filesystem('s3', anon=True)
   if load_data_with_illum_csv.endswith('parquet'):
-    with fsspec.open(load_data_with_illum_csv, mode='rb') as f:
+    with s3_fs.open(load_data_with_illum_csv, mode='rb') as f:
         load_data_df = pd.read_parquet(f)
   elif load_data_with_illum_csv.endswith('gz'):
     compression_dict = {'method': 'gzip'}
-    with fsspec.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
+    with s3_fs.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
       load_data_df = pd.read_csv(f, compression=compression_dict)
   else:
     # Assume default is uncompressed csv.
     compression_dict = {'method': None}
-    with fsspec.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
+    with s3_fs.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
       load_data_df = pd.read_csv(f, compression=compression_dict)
   return load_data_df
 
 if COMPUTE_VALIDATION:
   load_data_df = load_data_with_illum_csv(_LOAD_DATA.value)
   print(load_data_df.head())
-
-
-# In[31]:
 
 
 def load_all_results(site_metadata_dict):
@@ -1002,9 +818,6 @@ if COMPUTE_VALIDATION:
   all_results_dict = load_all_results(site_metadata_dict)
 
 
-# In[32]:
-
-
 def show_all_results_head_and_tail(all_results_dict):
   for site_key, site_df in all_results_dict.items():
     print(site_key)
@@ -1013,9 +826,6 @@ def show_all_results_head_and_tail(all_results_dict):
 
 if COMPUTE_VALIDATION:
   show_all_results_head_and_tail(all_results_dict)
-
-
-# In[33]:
 
 
 def validate_number_cell_centers(site_metadata_dict):
@@ -1034,14 +844,8 @@ def validate_number_cell_centers(site_metadata_dict):
       print('INVALID')
 
 
-# In[34]:
-
-
 if COMPUTE_VALIDATION:
     validate_number_cell_centers(site_metadata_dict)
-
-
-# In[35]:
 
 
 def validate_random_cell_embeddings(site_metadata_dict,
@@ -1084,9 +888,6 @@ def validate_random_cell_embeddings(site_metadata_dict,
       if not emb_is_close:
         print(embs[i])
         print(orig_embs[random_index])
-
-
-# In[36]:
 
 
 if COMPUTE_VALIDATION:
