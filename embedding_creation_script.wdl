@@ -100,7 +100,7 @@ task determineShards {
         String loadDataWithIllum
         # To determine the shard for a well, perform the modulus operation over the last two digits of the well name
         # or use the numeric value verbatim if the modulus value is zero.
-        Int modulus = 0
+        Int modulus = 24
 
         # Docker image
         String dockerImage = 'PUBLIC_DOCKER_IMAGE_GOES_HERE'
