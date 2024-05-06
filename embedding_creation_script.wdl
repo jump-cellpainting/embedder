@@ -11,26 +11,17 @@ version 1.0
 
 import 'https://raw.githubusercontent.com/broadinstitute/cellprofiler-on-Terra/v0.2.0/utils/cellprofiler_distributed_utils.wdl' as cell_profiler_workflows
 
-# TODO(deflaux) add more documentation and parameters_meta after this gets a review from mando@
-# TODO(deflaux, mando) store the Python scripts in the Docker image instead of pulling them from GCS, after
-#   we are finished changing them so frequently. That will eliminate two parameters and make this workflow easier for others to run.
-# TODO(deflaux) add AWS federated auth for Google Accounts
-
 workflow EmbeddingCreation {
     input {
-            
+
         #--- [ sharding specific parameters ] ----
-        # Python script to perform the sharding.
-        File shardingScript
         # Specify path to input load_data_with_illum.csv, which contains paths to *.tiff, and illum/*.npy.
         String loadDataWithIllum
         # To determine the shard for a well, perform the modulus operation over the last two digits of the well name
         # or use the numeric value verbatim if the modulus value is zero.
-        Int modulus = 0
+        Int modulus = 24
 
         #--- [ embedding creation specific parameters ] ----
-        # GCS path to Python script version of embedding_creation.ipynb
-        File embeddingCreationScript
         # GCS or S3 path underneath which computed cell centers are stored.
         String cellCentersPathPrefix
         # Desired location of the computed embeddings.
@@ -41,7 +32,7 @@ workflow EmbeddingCreation {
         Int tfHubModelInputImageHeight
         Int tfHubModelInputImageWidth
         Int tfHubModelOutputEmbSize
-        String embeddingCreationDockerImage = 'gcr.io/terra-solutions-jump-cp-dev/embedding_creation:20220929_151238'
+        String embeddingCreationDockerImage = 'PUBLIC_DOCKER_IMAGE_GOES_HERE'
         Int embeddingCreationCPU = 8
         Int embeddingCreationMemoryGB = 30
         Int embeddingCreationDiskGB = 10
@@ -52,17 +43,6 @@ workflow EmbeddingCreation {
         String embeddingCreationNvidiaDriverVersion = "470.82.01"
         String embeddingCreationZone = 'us-central1-c'
 
-        # Optional: If the image or cell center input files are in an S3 bucket, this workflow can read the files directly from AWS.
-        # To configure this:
-        # 1) Store the AWS access key id and secret access key in Google Cloud Secret Manager. This allows the secret to be used
-        #    by particular people without it being visible to everyone who can see the workspace.
-        #    (https://cloud.google.com/secret-manager/docs/create-secret)
-        # 2) Grant permission 'Secret Manager Secret Accessor' to your personal Terra proxy group.
-        #    (https://support.terra.bio/hc/en-us/articles/360031023592-Pet-service-accounts-and-proxy-groups-)
-        # 3) Pass the secret's "Resource ID" as the value to these workflow parameters.
-        String? secret_manager_resource_id_aws_access_key_id
-        String? secret_manager_resource_id_aws_secret_access_key
-
     }
 
     String embeddingOutputPathTrimmed = sub(embeddingOutputPath, '/+$', '')
@@ -70,11 +50,8 @@ workflow EmbeddingCreation {
     # Determine which wells should be processed within which shards.
     call determineShards {
         input:
-            shardingScript = shardingScript,
             loadDataWithIllum = loadDataWithIllum,
             modulus = modulus,
-            secret_manager_resource_id_aws_access_key_id = secret_manager_resource_id_aws_access_key_id,
-            secret_manager_resource_id_aws_secret_access_key = secret_manager_resource_id_aws_secret_access_key,
             dockerImage = embeddingCreationDockerImage
     }
 
@@ -82,12 +59,9 @@ workflow EmbeddingCreation {
     scatter(shard in determineShards.value) {
         call runEmbeddingCreationScript {
             input:
-                embeddingCreationScript = embeddingCreationScript,
                 shardMetadata = shard,
                 loadDataWithIllum = loadDataWithIllum,
                 cellCentersPathPrefix = cellCentersPathPrefix,
-                secret_manager_resource_id_aws_access_key_id = secret_manager_resource_id_aws_access_key_id,
-                secret_manager_resource_id_aws_secret_access_key = secret_manager_resource_id_aws_secret_access_key,
                 cellPatchDim = cellPatchDim,
                 modelBatchDim = modelBatchDim,
                 tfHubModelPath = tfHubModelPath,
@@ -114,8 +88,6 @@ workflow EmbeddingCreation {
     }
 
     output {
-        File shardingScriptUsed = determineShards.executedScript
-        File embeddingCreationScriptUsed = runEmbeddingCreationScript.executedScript[0]
         String outputDirectory = delocalizeEmbeddingOutputs.output_directory[0]
         Array[File] dataWarningsLog = runEmbeddingCreationScript.dataWarningsLog
     }
@@ -124,63 +96,36 @@ workflow EmbeddingCreation {
 task determineShards {
 
     input {
-        # Python script to perform the sharding.
-        File shardingScript
         # Specify path to input load_data_with_illum.csv, which contains GCS paths to *.tiff, and illum/*.npy.
         String loadDataWithIllum
         # To determine the shard for a well, perform the modulus operation over the last two digits of the well name
         # or use the numeric value verbatim if the modulus value is zero.
-        Int modulus = 0
-        # Optional: If the CellProfiler analysis results are in an S3 bucket, this workflow can read the files directly from AWS.
-        # To configure this:
-        # 1) Store the AWS access key id and secret access key in Google Cloud Secret Manager. This allows the secret to be used
-        #    by particular people without it being visible to everyone who can see the workspace.
-        #    (https://cloud.google.com/secret-manager/docs/create-secret)
-        # 2) Grant permission 'Secret Manager Secret Accessor' to your personal Terra proxy group.
-        #    (https://support.terra.bio/hc/en-us/articles/360031023592-Pet-service-accounts-and-proxy-groups-)
-        # 3) Pass the secret's "Resource ID" as the value to these workflow parameters.
-        String? secret_manager_resource_id_aws_access_key_id
-        String? secret_manager_resource_id_aws_secret_access_key
+        Int modulus = 24
 
         # Docker image
-        String dockerImage = 'gcr.io/terra-solutions-jump-cp-dev/embedding_creation:20220929_151238'
+        String dockerImage = 'PUBLIC_DOCKER_IMAGE_GOES_HERE'
     }
 
     String outputFilename = 'shards_metadata.txt'
-    String outputScriptFilename = 'executed_script.py'
-    
+
     command <<<
         # Errors should cause the task to fail, not produce an empty output.
         set -o errexit
         set -o pipefail
         set -o nounset
-
-        ~{if defined(secret_manager_resource_id_aws_access_key_id)
-          then "export AWS_ACCESS_KEY_ID=$(gcloud secrets versions access ~{secret_manager_resource_id_aws_access_key_id})"
-          else ""
-        }
-
-        ~{if defined(secret_manager_resource_id_aws_secret_access_key)
-          then "export AWS_SECRET_ACCESS_KEY=$(gcloud secrets versions access ~{secret_manager_resource_id_aws_secret_access_key})"
-          else ""
-        }
-
         # Send a trace of all fully resolved executed commands to stderr.
-        # Note that we enable this _after_ fetching credentials, because we do not want to log those values.
         set -o xtrace
-        python3 ~{shardingScript} \
+
+        python3  /opt/scatter_wells_s3.py \
             --load_data_with_illum_csv_file=~{loadDataWithIllum} \
             --modulus=~{modulus} \
             --output_filename=~{outputFilename}
 
-        # Capture a copy of the executed notebook for the sake of provenance.
-        cp ~{shardingScript} ~{outputScriptFilename}
     >>>
 
     output {
         Array[String] value = read_lines(outputFilename)
         File outputText = outputFilename
-        File executedScript = outputScriptFilename
     }
 
     runtime {
@@ -192,32 +137,20 @@ task determineShards {
 }
 
 task runEmbeddingCreationScript {
-    input {        
-        # GCS path to Python script version of embedding_creation.ipynb
-        File embeddingCreationScript
+    input {
         # GCS or S3 path underneath which computed cell centers are stored.
         String shardMetadata
         # Specify path to input load_data_with_illum.csv, which contains GCS paths to *.tiff, and illum/*.npy.
         String loadDataWithIllum
         String cellCentersPathPrefix
-        # Optional: If the CellProfiler analysis results are in an S3 bucket, this workflow can read the files directly from AWS.
-        # To configure this:
-        # 1) Store the AWS access key id and secret access key in Google Cloud Secret Manager. This allows the secret to be used
-        #    by particular people without it being visible to everyone who can see the workspace.
-        #    (https://cloud.google.com/secret-manager/docs/create-secret)
-        # 2) Grant permission 'Secret Manager Secret Accessor' to your personal Terra proxy group.
-        #    (https://support.terra.bio/hc/en-us/articles/360031023592-Pet-service-accounts-and-proxy-groups-)
-        # 3) Pass the secret's "Resource ID" as the value to these workflow parameters.
-        String? secret_manager_resource_id_aws_access_key_id
-        String? secret_manager_resource_id_aws_secret_access_key
         Int cellPatchDim
         Int modelBatchDim
         String tfHubModelPath
         Int tfHubModelInputImageHeight
         Int tfHubModelInputImageWidth
         Int tfHubModelOutputEmbSize
-        
-        String dockerImage = 'gcr.io/terra-solutions-jump-cp-dev/embedding_creation:20220929_151238'
+
+        String dockerImage = 'PUBLIC_DOCKER_IMAGE_GOES_HERE'
         Int cpu = 8
         Int memoryGB = 30
         Int diskGB = 10
@@ -229,35 +162,22 @@ task runEmbeddingCreationScript {
         String zone = 'us-central1-c'
 
     }
-  
+
     String workDir = 'workdir'
     String tarOutputsFile = 'outputs.tar.gz'
-    String outputScriptFilename = 'executed_script.py'
 
     command <<<
         # Errors should cause the task to fail, not produce an empty output.
         set -o errexit
         set -o pipefail
         set -o nounset
-
-        ~{if defined(secret_manager_resource_id_aws_access_key_id)
-          then "export AWS_ACCESS_KEY_ID=$(gcloud secrets versions access ~{secret_manager_resource_id_aws_access_key_id})"
-          else ""
-        }
-
-        ~{if defined(secret_manager_resource_id_aws_secret_access_key)
-          then "export AWS_SECRET_ACCESS_KEY=$(gcloud secrets versions access ~{secret_manager_resource_id_aws_secret_access_key})"
-          else ""
-        }
-
         # Send a trace of all fully resolved executed commands to stderr.
-        # Note that we enable this _after_ fetching credentials, because we do not want to log those values.
         set -o xtrace
 
         mkdir -p ~{workDir}
         cd ~{workDir}
 
-        python3 ~{embeddingCreationScript} \
+        python3  /opt/embedding_creation.py \
             --shard_metadata='~{shardMetadata}' \
             --cell_center_path_prefix=~{cellCentersPathPrefix} \
             --load_data=~{loadDataWithIllum} \
@@ -267,18 +187,15 @@ task runEmbeddingCreationScript {
             --tf_hub_model_output_emb_height=~{tfHubModelInputImageHeight} \
             --tf_hub_model_output_emb_width=~{tfHubModelInputImageWidth} \
             --tf_hub_model_output_emb_size=~{tfHubModelOutputEmbSize}
-       
+
         # Create a tar to also capture any outputs written to subdirectories, in addition to the current working directory.
         cd ..
         tar -zcvf ~{tarOutputsFile} --directory ~{workDir} .
-        # Capture a copy of the executed notebook for the sake of provenance.
-        cp ~{embeddingCreationScript} ~{outputScriptFilename}
 
     >>>
 
     output {
         File tarOutputs = tarOutputsFile
-        File executedScript = outputScriptFilename
         File dataWarningsLog = glob('*data_warnings.log')[0]
     }
 

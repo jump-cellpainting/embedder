@@ -13,7 +13,6 @@ import pandas as pd
 
 from absl import app
 from absl import flags
-from google.cloud import secretmanager
 
 # Constants
 CELL_PROFILER_FILE_NAME_PREFIX = 'FileName'
@@ -32,28 +31,20 @@ flags.DEFINE_integer('modulus', 0, 'To determine the shard for a well, perform t
 flags.DEFINE_string('output_filename', 'shards.json', 'The name of the output file with newline separated JSON metadata for each shard.')
 
 
-PROJECT_ID = YOURPROJECTNUMBER
-
-
-def access_secret_version(secret_id, version_id='latest'):
-  # Create the Secret Manager client.
-  client = secretmanager.SecretManagerServiceClient()
-
-  # Build the resource name of the secret version.
-  name = f'projects/{PROJECT_ID}/secrets/{secret_id}/versions/{version_id}'
-
-  # Access the secret version.
-  response = client.access_secret_version(name=name)
-
-  # Return the decoded payload.
-  return response.payload.data.decode('UTF-8')
-
-
 def create_shard_metadata(load_data_with_illum_csv: str, modulus: int):
-  with fsspec.open(load_data_with_illum_csv,
-                   mode='rb',
-                   profile='jump-cp-role') as f:
-    load_data = pd.read_csv(f, dtype='str')
+  s3_fs = fsspec.filesystem('s3', anon=True)
+  if load_data_with_illum_csv.endswith('parquet'):
+    with s3_fs.open(load_data_with_illum_csv, mode='rb') as f:
+        load_data = pd.read_parquet(f)
+  elif load_data_with_illum_csv.endswith('gz'):
+    compression_dict = {'method': 'gzip'}
+    with s3_fs.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
+      load_data = pd.read_csv(f, compression=compression_dict)
+  else:
+    # Assume default is uncompressed csv.
+    compression_dict = {'method': None}
+    with s3_fs.open(os.path.join(load_data_with_illum_csv), mode='rb') as f:
+      load_data = pd.read_csv(f, compression=compression_dict)
   print(f'Loaded {load_data.shape} from {load_data_with_illum_csv} with {load_data.columns}.')
 
   # Determine the shards
@@ -82,20 +73,8 @@ def write_metadata(shards_metadata: dict, output_file: str):
     for shard_metadata in shards_metadata:
       filehandle.write(f'{json.dumps(shard_metadata)}\n')
 
+
 def main(_):
-  config_string = access_secret_version('USERNAME-aws-config')
-  credentials_string = access_secret_version('USERNAME-aws-credentials')
-
-  aws_dir = os.path.join(os.path.expanduser('~'), '.aws')
-  if os.path.exists(aws_dir):
-    shutil.rmtree(aws_dir)
-  os.mkdir(aws_dir)
-
-  with open(os.path.join(aws_dir, 'config'), 'w') as f:
-    f.write(config_string)
-  with open(os.path.join(aws_dir, 'credentials'), 'w') as f:
-    f.write(credentials_string)
-
   write_metadata(
       create_shard_metadata(FLAGS.load_data_with_illum_csv_file, FLAGS.modulus),
       FLAGS.output_filename

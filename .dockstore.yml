@@ -1,0 +1,5 @@
+version: 1.2
+workflows:
+  - subclass: WDL
+    primaryDescriptorPath: embedding_creation_script.wdl
+    name: EmbeddingCreation
