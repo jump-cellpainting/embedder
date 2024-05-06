@@ -32,7 +32,7 @@ workflow EmbeddingCreation {
         Int tfHubModelInputImageHeight
         Int tfHubModelInputImageWidth
         Int tfHubModelOutputEmbSize
-        String embeddingCreationDockerImage = 'PUBLIC_DOCKER_IMAGE_GOES_HERE'
+        String embeddingCreationDockerImage = 'PUBLIC_DOCKER_IMAGE_WILL_GO_HERE'
         Int embeddingCreationCPU = 8
         Int embeddingCreationMemoryGB = 30
         Int embeddingCreationDiskGB = 10
