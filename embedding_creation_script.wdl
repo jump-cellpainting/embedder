@@ -36,6 +36,7 @@ workflow EmbeddingCreation {
         Int embeddingCreationCPU = 8
         Int embeddingCreationMemoryGB = 30
         Int embeddingCreationDiskGB = 10
+        Int embeddingCreationBootDiskGB = 15
         Int embeddingCreationMaxRetries = 1
         Int embeddingCreationPreemptibleAttempts = 2
         String embeddingCreationGPUType = "nvidia-tesla-t4"
@@ -53,7 +54,7 @@ workflow EmbeddingCreation {
             loadDataWithIllum = loadDataWithIllum,
             modulus = modulus,
             dockerImage = embeddingCreationDockerImage,
-            diskGB = embeddingCreationDiskGB
+            bootDiskGB = embeddingCreationBootDiskGB
     }
 
     # Run embedding creation scattered by shards of multiple wells.
@@ -73,6 +74,7 @@ workflow EmbeddingCreation {
                 cpu = embeddingCreationCPU,
                 memoryGB = embeddingCreationMemoryGB,
                 diskGB = embeddingCreationDiskGB,
+                bootDiskGB = embeddingCreationBootDiskGB,
                 maxRetries = embeddingCreationMaxRetries,
                 preemptibleAttempts = embeddingCreationPreemptibleAttempts,
                 gpuType = embeddingCreationGPUType,
@@ -105,7 +107,7 @@ task determineShards {
 
         # Docker image
         String dockerImage = 'ghcr.io/deflaux/embedding_creation:20240502_203214'
-        Int diskGB = 10
+        Int bootDiskGB = 15
     }
 
     String outputFilename = 'shards_metadata.txt'
@@ -132,7 +134,7 @@ task determineShards {
 
     runtime {
         docker: dockerImage
-        disks: 'local-disk ' + diskGB + ' SSD'
+        bootDiskSizeGb: bootDiskGB
         maxRetries: 1
         preemptible: 2
     }
@@ -157,6 +159,7 @@ task runEmbeddingCreationScript {
         Int cpu = 8
         Int memoryGB = 30
         Int diskGB = 10
+        Int bootDiskGB = 15
         Int maxRetries = 1
         Int preemptibleAttempts = 2
         String gpuType = 'nvidia-tesla-t4'
@@ -208,6 +211,7 @@ task runEmbeddingCreationScript {
         docker: dockerImage
         memory: memoryGB + ' GB'
         disks: 'local-disk ' + diskGB + ' SSD'
+        bootDiskSizeGb: bootDiskGB
         maxRetries: maxRetries
         preemptible: preemptibleAttempts
         cpu: cpu
