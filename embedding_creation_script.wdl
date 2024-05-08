@@ -32,7 +32,7 @@ workflow EmbeddingCreation {
         Int tfHubModelInputImageHeight
         Int tfHubModelInputImageWidth
         Int tfHubModelOutputEmbSize
-        String embeddingCreationDockerImage = 'PUBLIC_DOCKER_IMAGE_WILL_GO_HERE'
+        String embeddingCreationDockerImage = 'ghcr.io/deflaux/embedding_creation:20240502_203214'
         Int embeddingCreationCPU = 8
         Int embeddingCreationMemoryGB = 30
         Int embeddingCreationDiskGB = 10
@@ -103,7 +103,7 @@ task determineShards {
         Int modulus = 24
 
         # Docker image
-        String dockerImage = 'PUBLIC_DOCKER_IMAGE_GOES_HERE'
+        String dockerImage = 'ghcr.io/deflaux/embedding_creation:20240502_203214'
     }
 
     String outputFilename = 'shards_metadata.txt'
@@ -150,7 +150,7 @@ task runEmbeddingCreationScript {
         Int tfHubModelInputImageWidth
         Int tfHubModelOutputEmbSize
 
-        String dockerImage = 'PUBLIC_DOCKER_IMAGE_GOES_HERE'
+        String dockerImage = 'ghcr.io/deflaux/embedding_creation:20240502_203214'
         Int cpu = 8
         Int memoryGB = 30
         Int diskGB = 10
