@@ -1,0 +1,10 @@
+{
+  "EmbeddingCreation.tfHubModelOutputEmbSize":"${1280}",
+  "EmbeddingCreation.cellCentersPathPrefix":"s3://cellpainting-gallery/cpg0016-jump/source_10/workspace/analysis/2021_05_31_U2OS_48_hr_run1/Dest210531-152149/analysis",
+  "EmbeddingCreation.cellPatchDim":"${128}",
+  "EmbeddingCreation.loadDataWithIllum":"s3://cellpainting-gallery/cpg0016-jump/source_10/workspace/load_data_csv/2021_05_31_U2OS_48_hr_run1/Dest210531-152149/load_data_with_illum.parquet",
+  "EmbeddingCreation.tfHubModelInputImageHeight":"${384}",
+  "EmbeddingCreation.tfHubModelPath":"https://tfhub.dev/google/imagenet/efficientnet_v2_imagenet21k_s/feature_vector/2",
+  "EmbeddingCreation.tfHubModelInputImageWidth":"${384}",
+  "EmbeddingCreation.modelBatchDim":"${256}"
+}

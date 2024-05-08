@@ -52,7 +52,8 @@ workflow EmbeddingCreation {
         input:
             loadDataWithIllum = loadDataWithIllum,
             modulus = modulus,
-            dockerImage = embeddingCreationDockerImage
+            dockerImage = embeddingCreationDockerImage,
+            diskGB = embeddingCreationDiskGB
     }
 
     # Run embedding creation scattered by shards of multiple wells.
@@ -104,6 +105,7 @@ task determineShards {
 
         # Docker image
         String dockerImage = 'ghcr.io/deflaux/embedding_creation:20240502_203214'
+        Int diskGB = 10
     }
 
     String outputFilename = 'shards_metadata.txt'
@@ -130,6 +132,7 @@ task determineShards {
 
     runtime {
         docker: dockerImage
+        disks: 'local-disk ' + diskGB + ' SSD'
         maxRetries: 1
         preemptible: 2
     }
