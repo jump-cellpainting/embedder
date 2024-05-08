@@ -1,5 +1,7 @@
 version: 1.2
 workflows:
   - subclass: WDL
-    primaryDescriptorPath: embedding_creation_script.wdl
-    name: EmbeddingCreation
+    primaryDescriptorPath: /embedding_creation_script.wdl
+    topic: Method to compute per-cell embeddings for all JUMP-CP data.
+    testParameterFiles:
+    - /single_plate_example_inputs.json
