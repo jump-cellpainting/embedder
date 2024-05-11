@@ -32,7 +32,7 @@ workflow EmbeddingCreation {
         Int tfHubModelInputImageHeight
         Int tfHubModelInputImageWidth
         Int tfHubModelOutputEmbSize
-        String embeddingCreationDockerImage = 'ghcr.io/deflaux/embedding_creation:20240502_203214'
+        String embeddingCreationDockerImage = 'ghcr.io/jump-cellpainting/cell-painting-embedder:20240510'
         Int embeddingCreationCPU = 8
         Int embeddingCreationMemoryGB = 30
         Int embeddingCreationDiskGB = 10
@@ -106,7 +106,7 @@ task determineShards {
         Int modulus = 24
 
         # Docker image
-        String dockerImage = 'ghcr.io/deflaux/embedding_creation:20240502_203214'
+        String dockerImage = 'ghcr.io/jump-cellpainting/cell-painting-embedder:20240510'
         Int bootDiskGB = 15
     }
 
@@ -155,7 +155,7 @@ task runEmbeddingCreationScript {
         Int tfHubModelInputImageWidth
         Int tfHubModelOutputEmbSize
 
-        String dockerImage = 'ghcr.io/deflaux/embedding_creation:20240502_203214'
+        String dockerImage = 'ghcr.io/jump-cellpainting/cell-painting-embedder:20240510'
         Int cpu = 8
         Int memoryGB = 30
         Int diskGB = 10
