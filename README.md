@@ -1,4 +1,8 @@
 # embedder
+
+> [!CAUTION]
+> This repository is no longer being used as of Aug 4, 2025. All issues were marked as "Not planned" and added to this [project](https://github.com/orgs/jump-cellpainting/projects/16/views/1).
+
 Method to compute per-cell embeddings for all JUMP-CP data.
 
 ## How to use this method
